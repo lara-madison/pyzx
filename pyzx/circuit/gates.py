@@ -38,21 +38,19 @@ class TargetMapper(Generic[VT]):
     _qubits: Dict[int, int]
     _rows: Dict[int, int]
     _prev_vs: Dict[int, VT]
-    _labels: Set[int]
     _max_row: int
 
     def __init__(self):
         self._qubits = {}
         self._rows = {}
         self._prev_vs = {}
-        self._labels = set()
         self._max_row = 0
 
     def labels(self) -> Set[int]:
         """
         Returns the mapped labels.
         """
-        return self._labels
+        return set(self._qubits.keys())
 
     def to_qubit(self, l: int) -> int:
         """
@@ -71,13 +69,6 @@ class TargetMapper(Generic[VT]):
         Returns the next free row in the label's qubit.
         """
         return self._rows[l]
-
-    def next_row_or_default(self, l: int, default: int) -> int:
-        """
-        Returns the next free row in the label's qubit if it is tracked.
-        Otherwise, the default value is returned.
-        """
-        return self._rows.get(l, default)
 
     def set_next_row(self, l: int, row: int) -> None:
         """
@@ -139,12 +130,11 @@ class TargetMapper(Generic[VT]):
 
         :raises: ValueError if the label is already tracked.
         """
-        if l in self._labels:
+        if l in self._qubits:
             raise ValueError("Label {} already in use".format(str(l)))
-        q = self._qubits.get(l, len(self._qubits))
+        q = len(self._qubits)
         self.set_qubit(l, q)
         self.set_next_row(l, row)
-        self._labels.add(l)
         # r = self.max_row()
         # self.set_all_rows_to_max()
 
@@ -159,14 +149,16 @@ class TargetMapper(Generic[VT]):
 
         :raises: ValueError if the label is not tracked.
         """
-        if l not in self._labels:
+        if l not in self._qubits:
             raise ValueError("Label {} not in use".format(str(l)))
         
         # self.set_all_rows_to_max()
         # if not compress_rows:
         #     self.shift_all_rows(1)
 
-        self._labels.remove(l)
+        del self._qubits[l]
+        del self._rows[l]
+        del self._prev_vs[l]
 
 class Gate(object):
     """Base class for representing quantum gates."""
@@ -585,13 +577,12 @@ class CNOT(Gate):
         self.target = target
         self.control = control
     def to_graph(self, g, q_mapper, _c_mapper):
-        [top, bot] = sorted([self.target, self.control])
-        r = max(q_mapper.next_row(r_) for r_ in range(top, bot + 1))
+        r = max(q_mapper.next_row(self.target), q_mapper.next_row(self.control))
         t = self.graph_add_node(g, q_mapper, VertexType.X, self.target, r)
         c = self.graph_add_node(g, q_mapper, VertexType.Z, self.control, r)
         g.add_edge((t,c))
-        for r_ in range(top, bot + 1):
-          q_mapper.set_next_row(r_, r+1)
+        q_mapper.set_next_row(self.target, r+1)
+        q_mapper.set_next_row(self.control, r+1)
         g.scalar.add_power(1)
 
     def to_emoji(self,strings: List[List[str]]) -> None:
@@ -1207,14 +1198,13 @@ class Measurement(Gate):
     target: int
     result_bit: Optional[int]
 
-    name = 'Measurement'
     quipper_name = 'measure'
     # This gate has special syntax in qasm: https://openqasm.com/language/insts.html#measurement
     # PyZX supports the following subset of the syntax:
     # * (OpenQASM 2) measure q[0] -> c[0]
     # * (OpenQASM 3) c[0] = measure q[0]
 
-    def __init__(self, target: int, result_bit: Optional[int] = None) -> None:
+    def __init__(self, target: int, result_bit: Optional[int]) -> None:
         self.target = target
         self.result_bit = result_bit
 
@@ -1222,7 +1212,7 @@ class Measurement(Gate):
         if not isinstance(other, Measurement): return False
         if self.target != other.target: return False
         if self.result_bit != other.result_bit: return False
-        return True
+        return False
 
     def reposition(self, mask, bit_mask = None):
         g = self.copy()
@@ -1237,7 +1227,7 @@ class Measurement(Gate):
             DiscardBit(self.result_bit).to_graph(g, q_mapper, c_mapper)
         # Qubit measurement
         r = q_mapper.next_row(self.target)
-        if self.result_bit is not None:
+        if self.result_bit is None:
             r = max(r, c_mapper.next_row(self.result_bit))
         v = self.graph_add_node(g,
             q_mapper,
