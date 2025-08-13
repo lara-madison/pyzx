@@ -32,7 +32,7 @@ from pyzx.circuit.qasmparser import qasm
 from fractions import Fraction
 from pyzx.generate import cliffordT
 from pyzx.simplify import *
-from pyzx.simplify import supplementarity_simp, to_clifford_normal_form_graph
+from pyzx.simplify import supplementarity_simp, to_clifford_normal_form_graph, copy_simp
 from pyzx import compare_tensors
 from pyzx.generate import cliffordT
 
@@ -132,12 +132,74 @@ class TestSimplify(unittest.TestCase):
             full_reduce(g)
         self.assertTrue("Input graph is not a ZX-diagram" in str(context.exception))
 
+    def test_full_reduce_scalar(self):
+        """Test that checks whether a scalar is correctly removed from a graph using full_reduce.
+        """
+
+        from pyzx import Graph, full_reduce 
+        g = Graph()
+        g.add_vertex(ty=1, phase=0.5)
+        g.add_vertex(ty=1, phase=1)
+        g.add_edge((0, 1))
+
+        full_reduce(g)
+
+        g1 = Graph()
+        g1.add_vertex(ty=1, phase=1)
+
+        full_reduce(g1)
+        
+        self.assertTrue(g.num_vertices() == 0)
+        self.assertTrue(g1.num_vertices() == 0)
+
+
     def test_to_clifford_normal_form_graph(self):
         for _ in range(10):
             g = cliffordT(4, 20, p_t=0)
             g0 = g.copy()
             to_clifford_normal_form_graph(g)
             self.assertTrue(compare_tensors(g0, g, preserve_scalar=True))
+    
+    def test_copy_simp(self):
+        g = Graph() 
+
+        v0 = g.add_vertex(VertexType.Z, 0, 0)
+        v1 = g.add_vertex(VertexType.X, 0, 1)
+        g.add_edge((v0, v1))
+        v2 = g.add_vertex(VertexType.BOUNDARY, 0, 3)
+        g.add_edge((v1, v2))
+        v3 = g.add_vertex(VertexType.BOUNDARY, 1, 3)
+        g.add_edge((v1, v3))
+        g1 = g.copy()
+        to_gh(g1)
+        copy_simp(g1)
+
+        g1.auto_detect_io()
+        g.auto_detect_io()
+
+        self.assertTrue(compare_tensors(g1.to_tensor(),g.to_tensor()))
+
+    
+    def test_copy_simp_full_reduce(self):
+        g = Graph() 
+
+        v0 = g.add_vertex(VertexType.Z, 0, 0)
+        v1 = g.add_vertex(VertexType.X, 0, 1)
+        g.add_edge((v0, v1))
+        v2 = g.add_vertex(VertexType.BOUNDARY, 0, 3)
+        g.add_edge((v1, v2))
+        v3 = g.add_vertex(VertexType.BOUNDARY, 1, 3)
+        g.add_edge((v1, v3))
+
+        g1 = g.copy()
+        to_gh(g)
+        copy_simp(g)
+
+        full_reduce(g1)
+        g.auto_detect_io()
+        g1.auto_detect_io()
+        self.assertTrue(compare_tensors(g1.to_tensor(),g.to_tensor()))
+
 
 
 qasm_1 = """OPENQASM 2.0;

@@ -20,6 +20,7 @@ import random
 import sys
 from types import ModuleType
 from typing import Optional
+from fractions import Fraction
 
 if __name__ == '__main__':
     sys.path.append('..')
@@ -29,6 +30,7 @@ from pyzx.circuit.gates import CNOT
 from pyzx.generate import cliffordT
 from pyzx.simplify import clifford_simp
 from pyzx.extract import extract_circuit
+from pyzx import simplify
 
 np: Optional[ModuleType]
 try:
@@ -43,6 +45,33 @@ SEED = 1337
 
 @unittest.skipUnless(np, "numpy needs to be installed for this to run")
 class TestExtract(unittest.TestCase):
+
+    def test_simple_extract(self):
+        c = Circuit(1)
+        c.add_gate("HAD", 0)
+        c.add_gate("ZPhase", 0, phase= Fraction(1,4))
+
+        g = c.to_graph()
+        
+        simplify.full_reduce(g,quiet=True)
+
+        c2 = extract_circuit(g)
+        self.assertListEqual(c.gates, c2.gates)
+        self.assertTrue(c.verify_equality(c2))
+
+    def test_extract_not_graph_like(self):
+        c = Circuit(1)
+        c.add_gate("HAD", 0)
+        c.add_gate("ZPhase", 0, phase=1/4)
+
+        g = c.to_graph()
+        
+
+        with self.assertRaises(ValueError) as context:
+            c = extract_circuit(g)
+        self.assertTrue("Input graph is not graph-like. Try running full_reduce first" in str(context.exception))
+
+
 
     def test_extract_circuit(self):
         random.seed(SEED)
